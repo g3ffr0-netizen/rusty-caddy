@@ -151,6 +151,23 @@ def compass(deg: float | None) -> str:
     return pts[int((float(deg) % 360) / 22.5 + 0.5) % 16]
 
 
+def extract_wind(conditions: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Extract live wind speed, gust, and compass direction from Open-Meteo current conditions."""
+    if not conditions:
+        return None
+    speed = conditions.get("wind_kmh")
+    direction = conditions.get("wind_dir_deg")
+    if speed is None or direction is None:
+        return None
+    gust = conditions.get("gust_kmh")
+    return {
+        "wind_kmh": max(0.0, float(speed)),
+        "gust_kmh": max(0.0, float(gust)) if gust is not None else None,
+        "wind_dir_deg": float(direction) % 360.0,
+        "compass": compass(direction),
+    }
+
+
 # ---------------------------------------------------------------- BOM warnings
 def parse_bom_rss(xml_text: str) -> list[dict[str, str]]:
     root = ET.fromstring(xml_text.encode("utf-8") if isinstance(xml_text, str) else xml_text)

@@ -1,0 +1,36 @@
+{
+  "name": "Coastal Links Sample (Par 72)",
+  "tee": "Blue",
+  "pro_shop": {
+    "name": "Coastal Links Pro Shop",
+    "phone": "02 9555 0240",
+    "notes": "Exposed coastal breeze — check wind direction on back nine"
+  },
+  "location": {
+    "name": "Cronulla, NSW",
+    "latitude": -34.0574,
+    "longitude": 151.1522,
+    "bom_state": "nsw",
+    "bom_district": "Metropolitan"
+  },
+  "holes": [
+    {"number": 1, "par": 4, "stroke_index": 9, "distance_m": 350, "bearing_deg": 135},
+    {"number": 2, "par": 5, "stroke_index": 5, "distance_m": 485, "bearing_deg": 180},
+    {"number": 3, "par": 3, "stroke_index": 15, "distance_m": 170, "bearing_deg": 90},
+    {"number": 4, "par": 4, "stroke_index": 1, "distance_m": 410, "bearing_deg": 135},
+    {"number": 5, "par": 4, "stroke_index": 11, "distance_m": 335, "bearing_deg": 225},
+    {"number": 6, "par": 3, "stroke_index": 17, "distance_m": 140, "bearing_deg": 270},
+    {"number": 7, "par": 4, "stroke_index": 7, "distance_m": 375, "bearing_deg": 315},
+    {"number": 8, "par": 5, "stroke_index": 3, "distance_m": 515, "bearing_deg": 0},
+    {"number": 9, "par": 4, "stroke_index": 13, "distance_m": 345, "bearing_deg": 45},
+    {"number": 10, "par": 4, "stroke_index": 6, "distance_m": 385, "bearing_deg": 90},
+    {"number": 11, "par": 4, "stroke_index": 2, "distance_m": 405, "bearing_deg": 135},
+    {"number": 12, "par": 3, "stroke_index": 16, "distance_m": 165, "bearing_deg": 180},
+    {"number": 13, "par": 5, "stroke_index": 4, "distance_m": 500, "bearing_deg": 225},
+    {"number": 14, "par": 4, "stroke_index": 10, "distance_m": 360, "bearing_deg": 270},
+    {"number": 15, "par": 4, "stroke_index": 8, "distance_m": 370, "bearing_deg": 315},
+    {"number": 16, "par": 3, "stroke_index": 18, "distance_m": 145, "bearing_deg": 0},
+    {"number": 17, "par": 4, "stroke_index": 14, "distance_m": 330, "bearing_deg": 45},
+    {"number": 18, "par": 5, "stroke_index": 12, "distance_m": 480, "bearing_deg": 0}
+  ]
+}

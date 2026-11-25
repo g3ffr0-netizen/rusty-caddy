@@ -13,7 +13,31 @@ from .fines import DEFAULT_FINES
 N_HOLES = 18
 DEFAULT_PARS = [4, 4, 3, 5, 4, 4, 3, 4, 5, 4, 3, 4, 5, 4, 4, 3, 4, 5]
 DEFAULT_STROKE_INDEX = [7, 13, 17, 1, 9, 5, 15, 11, 3, 8, 16, 12, 2, 10, 6, 18, 14, 4]
+DEFAULT_DISTANCES = [365, 345, 155, 495, 375, 390, 165, 355, 510, 380, 150, 360, 505, 370, 385, 160, 340, 490]
+DEFAULT_SWING_CUE = "Hips · Load · Go"
 MAX_STROKES = 20
+MAX_PUTTS = 10
+MAX_PENALTIES = 10
+
+
+def normalise_swing_cue(text: str | None) -> str:
+    """Clean a pre-shot routine / swing cue string, falling back to the default."""
+    cleaned = " ".join((text or "").split())
+    return cleaned or DEFAULT_SWING_CUE
+
+
+def _opt_float(v: Any) -> float | None:
+    try:
+        return None if v in (None, "") else float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _opt_int(v: Any) -> int | None:
+    try:
+        return None if v in (None, "") else int(round(float(v)))
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -21,16 +45,64 @@ class Hole:
     number: int
     par: int
     stroke_index: int
+    distance_m: int = 0
+    bearing_deg: float | None = None
+
+    @property
+    def effective_distance_m(self) -> int:
+        """Hole distance in metres, falling back to a par-appropriate default if unset."""
+        if self.distance_m and self.distance_m > 0:
+            return int(self.distance_m)
+        if self.par == 3:
+            return 155
+        if self.par >= 5:
+            return 490
+        return 370
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "number": int(self.number),
+            "par": int(self.par),
+            "stroke_index": int(self.stroke_index),
+            "distance_m": int(self.distance_m or 0),
+        }
+        if self.bearing_deg is not None:
+            d["bearing_deg"] = float(self.bearing_deg)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Hole":
+        raw_dist = d.get("distance_m")
+        if raw_dist is None:
+            raw_dist = d.get("distance", d.get("metres", d.get("meters", 0)))
+        dist = _opt_int(raw_dist)
+        bearing = _opt_float(d.get("bearing_deg", d.get("bearing")))
+        return cls(
+            number=int(d["number"]),
+            par=int(d["par"]),
+            stroke_index=int(d["stroke_index"]),
+            distance_m=max(0, dist) if dist is not None else 0,
+            bearing_deg=(bearing % 360.0) if bearing is not None else None,
+        )
 
 
 def default_holes() -> list[Hole]:
-    return [Hole(i + 1, DEFAULT_PARS[i], DEFAULT_STROKE_INDEX[i]) for i in range(N_HOLES)]
+    return [Hole(i + 1, DEFAULT_PARS[i], DEFAULT_STROKE_INDEX[i], DEFAULT_DISTANCES[i]) for i in range(N_HOLES)]
 
 
 @dataclass
 class Course:
     name: str = "My Club"
     holes: list[Hole] = field(default_factory=default_holes)
+    tee: str = ""
+    pro_shop_name: str = ""
+    pro_shop_phone: str = ""
+    pro_shop_notes: str = ""
+    location_name: str = ""
+    latitude: float | None = None
+    longitude: float | None = None
+    bom_state: str = ""
+    bom_district: str = ""
 
     def hole(self, number: int) -> Hole:
         return self.holes[number - 1]
@@ -39,25 +111,69 @@ class Course:
     def par(self) -> int:
         return sum(h.par for h in self.holes)
 
+    @property
+    def total_distance_m(self) -> int:
+        return sum(h.effective_distance_m for h in self.holes)
+
     def validate(self) -> list[str]:
         problems: list[str] = []
         if len(self.holes) != N_HOLES:
             problems.append(f"Course needs exactly {N_HOLES} holes (has {len(self.holes)}).")
         if sorted(h.stroke_index for h in self.holes) != list(range(1, len(self.holes) + 1)):
             problems.append("Stroke indexes must use 1-18 exactly once each.")
+        if [h.number for h in self.holes] != list(range(1, len(self.holes) + 1)):
+            problems.append("Hole numbers must be ordered 1-18.")
         for h in self.holes:
             if h.par not in (3, 4, 5, 6):
                 problems.append(f"Hole {h.number}: par must be 3-6.")
+            if h.distance_m < 0 or h.distance_m > 900:
+                problems.append(f"Hole {h.number}: distance must be 0-900 m.")
+            if h.bearing_deg is not None and not (0.0 <= h.bearing_deg <= 360.0):
+                problems.append(f"Hole {h.number}: bearing must be 0-360 degrees.")
         return problems
 
-    def to_dict(self) -> dict:
-        return {"name": self.name, "holes": [vars(h).copy() for h in self.holes]}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "name": self.name,
+            "holes": [h.to_dict() for h in self.holes],
+        }
+        if self.tee:
+            d["tee"] = self.tee
+        if self.pro_shop_name or self.pro_shop_phone or self.pro_shop_notes:
+            d["pro_shop"] = {
+                "name": self.pro_shop_name,
+                "phone": self.pro_shop_phone,
+                "notes": self.pro_shop_notes,
+            }
+        if self.location_name or self.latitude is not None or self.longitude is not None or self.bom_state or self.bom_district:
+            d["location"] = {
+                "name": self.location_name,
+                "latitude": self.latitude,
+                "longitude": self.longitude,
+                "bom_state": self.bom_state,
+                "bom_district": self.bom_district,
+            }
+        return d
 
     @classmethod
     def from_dict(cls, d: dict | None) -> "Course":
         d = d or {}
-        holes = [Hole(int(h["number"]), int(h["par"]), int(h["stroke_index"])) for h in d.get("holes", [])]
-        return cls(name=str(d.get("name") or "My Club"), holes=holes or default_holes())
+        holes = [Hole.from_dict(h) for h in d.get("holes", [])]
+        pro_shop = d.get("pro_shop") if isinstance(d.get("pro_shop"), dict) else {}
+        location = d.get("location") if isinstance(d.get("location"), dict) else {}
+        return cls(
+            name=str(d.get("name") or "My Club").strip() or "My Club",
+            holes=holes or default_holes(),
+            tee=str(d.get("tee") or "").strip(),
+            pro_shop_name=str(pro_shop.get("name") or d.get("pro_shop_name") or "").strip(),
+            pro_shop_phone=str(pro_shop.get("phone") or d.get("pro_shop_phone") or "").strip(),
+            pro_shop_notes=str(pro_shop.get("notes") or d.get("pro_shop_notes") or "").strip(),
+            location_name=str(location.get("name") or d.get("location_name") or "").strip(),
+            latitude=_opt_float(location.get("latitude", d.get("latitude"))),
+            longitude=_opt_float(location.get("longitude", d.get("longitude"))),
+            bom_state=str(location.get("bom_state") or d.get("bom_state") or "").strip().lower(),
+            bom_district=str(location.get("bom_district") or d.get("bom_district") or "").strip(),
+        )
 
 
 @dataclass
@@ -77,7 +193,22 @@ def default_games() -> dict[str, dict[str, Any]]:
     }
 
 
+def _clean_hole_stat(raw: dict[str, Any] | None) -> dict[str, Any]:
+    raw = raw or {}
+    fir = raw.get("fir")
+    gir = raw.get("gir")
+    putts = _opt_int(raw.get("putts"))
+    penalties = _opt_int(raw.get("penalties"))
+    return {
+        "fir": None if fir is None else bool(fir),
+        "gir": None if gir is None else bool(gir),
+        "putts": None if putts is None else max(0, min(MAX_PUTTS, putts)),
+        "penalties": max(0, min(MAX_PENALTIES, penalties or 0)),
+    }
+
+
 _MISSING = object()
+_UNSET = object()
 
 
 @dataclass
@@ -87,8 +218,10 @@ class Round:
     games: dict[str, dict[str, Any]] = field(default_factory=default_games)
     scores: dict[str, dict[int, int | None]] = field(default_factory=dict)
     team_scores: dict[str, dict[int, int | None]] = field(default_factory=dict)
+    hole_stats: dict[str, dict[int, dict[str, Any]]] = field(default_factory=dict)
     wolf_picks: dict[int, str] = field(default_factory=dict)
     fines: list[dict[str, Any]] = field(default_factory=list)
+    swing_cue: str = DEFAULT_SWING_CUE
     current_hole: int = 1
     lightning_last: float | None = None
     started_at: float = field(default_factory=time.time)
@@ -161,6 +294,62 @@ class Round:
         self.set_score(name, hole, new, team)
         return new
 
+    # ---- hole stats (FIR / GIR / putts / penalties) ----------------------
+    def get_hole_stats(self, name: str, hole: int) -> dict[str, Any]:
+        hole = self._check_hole(hole)
+        return _clean_hole_stat(self.hole_stats.get(name, {}).get(hole))
+
+    def set_hole_stats(
+        self,
+        name: str,
+        hole: int,
+        *,
+        fir: Any = _UNSET,
+        gir: Any = _UNSET,
+        putts: Any = _UNSET,
+        penalties: Any = _UNSET,
+    ) -> dict[str, Any]:
+        hole = self._check_hole(hole)
+        cur = self.get_hole_stats(name, hole)
+        if fir is not _UNSET:
+            cur["fir"] = None if fir is None else bool(fir)
+        if gir is not _UNSET:
+            cur["gir"] = None if gir is None else bool(gir)
+        if putts is not _UNSET:
+            cur["putts"] = None if putts is None else max(0, min(MAX_PUTTS, int(putts)))
+        if penalties is not _UNSET:
+            cur["penalties"] = max(0, min(MAX_PENALTIES, int(penalties or 0)))
+        if self.course.hole(hole).par < 4:
+            cur["fir"] = None  # Par 3 holes have no fairway in regulation
+        self.hole_stats.setdefault(name, {})[hole] = cur
+        return cur
+
+    def toggle_fir(self, name: str, hole: int, value: bool) -> dict[str, Any]:
+        cur = self.get_hole_stats(name, hole)
+        next_val = None if cur["fir"] is value else value
+        return self.set_hole_stats(name, hole, fir=next_val)
+
+    def toggle_gir(self, name: str, hole: int, value: bool) -> dict[str, Any]:
+        cur = self.get_hole_stats(name, hole)
+        next_val = None if cur["gir"] is value else value
+        return self.set_hole_stats(name, hole, gir=next_val)
+
+    def adjust_putts(self, name: str, hole: int, delta: int) -> int:
+        cur = self.get_hole_stats(name, hole)["putts"]
+        if cur is None:
+            new = 2 if delta > 0 else 1
+        else:
+            new = cur + int(delta)
+        new = max(0, min(MAX_PUTTS, new))
+        self.set_hole_stats(name, hole, putts=new)
+        return new
+
+    def adjust_penalties(self, name: str, hole: int, delta: int) -> int:
+        cur = int(self.get_hole_stats(name, hole)["penalties"] or 0)
+        new = max(0, min(MAX_PENALTIES, cur + int(delta)))
+        self.set_hole_stats(name, hole, penalties=new)
+        return new
+
     def holes_complete(self, names: list[str] | None = None, team: bool = False) -> list[int]:
         names = names if names is not None else (self.team_names if team else self.player_names)
         if not names:
@@ -181,9 +370,12 @@ class Round:
         return sum(played), len(book), sum(1 for v in book.values() if v is None)
 
     # ---- serialisation ---------------------------------------------------
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         def book(b):
             return {n: {str(h): v for h, v in hs.items()} for n, hs in b.items()}
+
+        def stats_book(b):
+            return {n: {str(h): _clean_hole_stat(st) for h, st in hs.items()} for n, hs in b.items()}
 
         return {
             "round_id": self.round_id,
@@ -192,8 +384,10 @@ class Round:
             "games": copy.deepcopy(self.games),
             "scores": book(self.scores),
             "team_scores": book(self.team_scores),
+            "hole_stats": stats_book(self.hole_stats),
             "wolf_picks": {str(h): v for h, v in self.wolf_picks.items()},
             "fines": copy.deepcopy(self.fines),
+            "swing_cue": normalise_swing_cue(self.swing_cue),
             "current_hole": self.current_hole,
             "lightning_last": self.lightning_last,
             "started_at": self.started_at,
@@ -205,14 +399,19 @@ class Round:
         def book(b):
             return {n: {int(h): (None if v is None else int(v)) for h, v in hs.items()} for n, hs in (b or {}).items()}
 
+        def stats_book(b):
+            return {n: {int(h): _clean_hole_stat(st) for h, st in hs.items()} for n, hs in (b or {}).items()}
+
         return cls(
             course=Course.from_dict(d.get("course")),
             players=[Player.from_dict(p) for p in d.get("players", [])],
             games=dict(d.get("games") or {}),
             scores=book(d.get("scores")),
             team_scores=book(d.get("team_scores")),
+            hole_stats=stats_book(d.get("hole_stats")),
             wolf_picks={int(h): str(v) for h, v in (d.get("wolf_picks") or {}).items()},
             fines=list(d.get("fines") or []),
+            swing_cue=normalise_swing_cue(d.get("swing_cue")),
             current_hole=int(d.get("current_hole", 1)),
             lightning_last=d.get("lightning_last"),
             started_at=float(d.get("started_at") or time.time()),
@@ -235,8 +434,9 @@ class Settings:
     bom_state: str = "nsw"
     bom_district: str = ""
     typical_miss: str = "Straight"
+    swing_cue: str = DEFAULT_SWING_CUE
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "course": self.course.to_dict(),
             "players": [vars(p).copy() for p in self.players],
@@ -250,18 +450,13 @@ class Settings:
             "bom_state": self.bom_state,
             "bom_district": self.bom_district,
             "typical_miss": self.typical_miss,
+            "swing_cue": normalise_swing_cue(self.swing_cue),
         }
 
     @classmethod
     def from_dict(cls, d: dict | None) -> "Settings":
         d = d or {}
         base = cls()
-
-        def opt_float(v):
-            try:
-                return None if v in (None, "") else float(v)
-            except (TypeError, ValueError):
-                return None
 
         return cls(
             course=Course.from_dict(d.get("course")),
@@ -271,11 +466,12 @@ class Settings:
             fines_mode=str(d.get("fines_mode") or "kitty"),
             pro_shop_phone=str(d.get("pro_shop_phone") or ""),
             location_name=str(d.get("location_name") or ""),
-            latitude=opt_float(d.get("latitude")),
-            longitude=opt_float(d.get("longitude")),
+            latitude=_opt_float(d.get("latitude")),
+            longitude=_opt_float(d.get("longitude")),
             bom_state=str(d.get("bom_state") or "nsw"),
             bom_district=str(d.get("bom_district") or ""),
             typical_miss=str(d.get("typical_miss") or "Straight"),
+            swing_cue=normalise_swing_cue(d.get("swing_cue")),
         )
 
 
@@ -284,4 +480,5 @@ def new_round(settings: Settings, games: dict | None = None) -> Round:
         course=copy.deepcopy(settings.course),
         players=copy.deepcopy(settings.players),
         games=copy.deepcopy(games) if games is not None else default_games(),
+        swing_cue=normalise_swing_cue(settings.swing_cue),
     )
