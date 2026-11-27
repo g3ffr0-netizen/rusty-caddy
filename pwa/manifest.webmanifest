@@ -1,0 +1,10 @@
+{
+  "name": "Rusty Caddy — Offline GPS Rangefinder",
+  "short_name": "Rusty Caddy",
+  "description": "Offline-first GPS golf rangefinder, plays-like calculator, and 3-Club Challenge caddy for Mangrove Mountain.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b1912",
+  "theme_color": "#14532d",
+  "orientation": "portrait"
+}

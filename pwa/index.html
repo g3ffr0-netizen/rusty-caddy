@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#14532d" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Rusty Caddy — Offline GPS</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <style>
+    :root {
+      --bg: #0b1912;
+      --card: #13281d;
+      --border: #234935;
+      --text: #f3f7f4;
+      --muted: #9eb8a8;
+      --accent: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --input-bg: #0d1f16;
+    }
+    body.sun {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #94a3b8;
+      --text: #0f172a;
+      --muted: #475569;
+      --accent: #15803d;
+      --warn: #b45309;
+      --danger: #b91c1c;
+      --input-bg: #f1f5f9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 12px 12px 48px;
+      max-width: 520px;
+      margin-inline: auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    h1 { font-size: 1.1rem; margin: 0; }
+    .badge {
+      font-size: 0.78rem;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: var(--input-bg);
+      color: var(--accent);
+      border: 1px solid var(--border);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge.warn { color: var(--warn); }
+    .badge.err { color: var(--danger); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row > * { flex: 1; }
+    label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
+    select, input {
+      width: 100%;
+      background: var(--input-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 10px;
+      font-size: 0.95rem;
+    }
+    button {
+      width: 100%;
+      border-radius: 10px;
+      padding: 10px 10px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      background: var(--input-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button.primary { background: var(--accent); color: #ffffff; border-color: var(--accent); }
+    button.warn { background: #78350f; color: #fef3c7; border-color: #b45309; }
+    button.danger { background: #7f1d1d; color: #fee2e2; border-color: #b91c1c; }
+    .pill-bar { display: flex; gap: 6px; margin-bottom: 10px; }
+    .pill-bar button { padding: 7px 8px; font-size: 0.8rem; }
+    .pill-bar button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .fmb {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      text-align: center;
+      margin-top: 6px;
+    }
+    .fmb-box {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 6px;
+    }
+    .fmb-box.mid { border: 2px solid var(--accent); }
+    .fmb-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .fmb-val { font-size: 1.8rem; font-weight: 800; line-height: 1.15; }
+    .fmb-pl { font-size: 0.82rem; color: var(--accent); font-weight: 700; }
+    .club-hero { font-size: 1.25rem; font-weight: 800; color: var(--accent); margin: 4px 0; }
+    .tip { font-size: 0.85rem; line-height: 1.4; margin-top: 6px; }
+    .muted { font-size: 0.78rem; color: var(--muted); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .hidden { display: none !important; }
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid var(--accent);
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      max-width: 92vw;
+      z-index: 999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⛳ Rusty Caddy GPS</h1>
+    <span id="gpsBadge" class="badge warn">GPS: Off</span>
+  </header>
+
+  <div class="pill-bar">
+    <button id="btnCompMode">🏆 Comp Mode (Rule 4.3)</button>
+    <button id="btnSunMode">☀️ Sun Mode</button>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div style="flex:1.4">
+        <label for="holeSelect">Mangrove Mountain Hole</label>
+        <select id="holeSelect"></select>
+      </div>
+      <div id="bagModeWrap">
+        <label for="bagMode">Mode</label>
+        <select id="bagMode">
+          <option value="3club" selected>3-Club (3W/7I/60°)</option>
+          <option value="full">Full Bag</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnStartGps" class="primary">📡 Start GPS</button>
+      <button id="btnStopGps" class="danger hidden">⏹ Stop GPS</button>
+      <button id="btnSavePin">📍 Set Green Pin</button>
+    </div>
+    <div id="gpsCoords" class="muted" style="margin-top:6px">Tap Start GPS outdoors. Install to Home Screen first on iPhone so pins persist.</div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between; margin-bottom:4px">
+      <span class="muted" id="targetModeLabel">Scorecard distance (walk to green & tap Set Green Pin)</span>
+      <span class="muted" id="bearingLabel">—</span>
+    </div>
+    <div class="fmb">
+      <div class="fmb-box">
+        <div class="fmb-label">Front</div>
+        <div class="fmb-val" id="valFront">—</div>
+        <div class="fmb-pl" id="plFront">PL —</div>
+      </div>
+      <div class="fmb-box mid">
+        <div class="fmb-label">Middle</div>
+        <div class="fmb-val" id="valMid">—</div>
+        <div class="fmb-pl" id="plMid">PL —</div>
+      </div>
+      <div class="fmb-box">
+        <div class="fmb-label">Back</div>
+        <div class="fmb-val" id="valBack">—</div>
+        <div class="fmb-pl" id="plBack">PL —</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="conditionsCard">
+    <div class="grid2">
+      <div>
+        <label for="lieSelect">Lie Condition</label>
+        <select id="lieSelect">
+          <option value="Flat / Fairway">Flat / Fairway (0m)</option>
+          <option value="Tight / Thin Grass">Tight / Thin Grass (0m)</option>
+          <option value="Uphill Lie">Uphill Lie (+8m)</option>
+          <option value="Downhill Lie">Downhill Lie (-6m)</option>
+          <option value="Ball Above Feet">Ball Above Feet (+2m)</option>
+          <option value="Ball Below Feet">Ball Below Feet (+4m)</option>
+        </select>
+      </div>
+      <div>
+        <label for="elevInput">Slope Elev Δ (m, +up / -dn)</label>
+        <input id="elevInput" type="number" value="0" step="1" min="-40" max="40" />
+      </div>
+      <div>
+        <label for="windKph">Wind (km/h)</label>
+        <input id="windKph" type="number" value="10" step="2" min="0" max="80" />
+      </div>
+      <div>
+        <label for="windDir">Wind Effect</label>
+        <select id="windDir">
+          <option value="0">Calm / Crosswind</option>
+          <option value="1">Into Wind (Headwind)</option>
+          <option value="-0.6">Downwind (Helping)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="caddyCard">
+    <div class="muted">CADDY CALL</div>
+    <div class="club-hero" id="clubHero">—</div>
+    <div class="tip" id="clubTip">Select a hole or start GPS for your club call.</div>
+    <div class="tip" id="lieTip" style="color:var(--warn)"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button id="btnMarkBall" class="warn">🏌️ Mark Ball</button>
+      <button id="btnClearBall">Clear Mark</button>
+    </div>
+    <div id="shotMeasure" class="tip muted" style="margin-top:6px">Tap Mark Ball before you hit, then walk to your ball to measure distance.</div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button id="btnCopyPins">📋 Copy Saved Pins</button>
+      <button id="btnImportPins">📥 Import Pins</button>
+      <button id="btnClearHolePin">🗑️ Clear Hole Pin</button>
+    </div>
+    <div id="pinCountLabel" class="muted" style="margin-top:6px">0 / 18 Mangrove Mountain green pins saved.</div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    const EARTH_R = 6371000;
+    const GREEN_HALF_DEPTH = 12;
+    const FIX_MAX_AGE_MS = 12000;
+    const PIN_KEY = "rusty_caddy_mm_pins_v1";
+    const BALL_KEY = "rusty_caddy_marked_ball_v1";
+    const PREF_KEY = "rusty_caddy_prefs_v1";
+
+    const HOLES = [
+      { n: 1, par: 4, si: 7, d: 345, b: 45 },
+      { n: 2, par: 4, si: 3, d: 370, b: 90 },
+      { n: 3, par: 3, si: 15, d: 150, b: 135 },
+      { n: 4, par: 4, si: 1, d: 395, b: 180 },
+      { n: 5, par: 5, si: 9, d: 470, b: 225 },
+      { n: 6, par: 3, si: 17, d: 135, b: 270 },
+      { n: 7, par: 4, si: 5, d: 360, b: 315 },
+      { n: 8, par: 4, si: 11, d: 325, b: 0 },
+      { n: 9, par: 4, si: 13, d: 315, b: 45 },
+      { n: 10, par: 4, si: 8, d: 340, b: 45 },
+      { n: 11, par: 4, si: 4, d: 365, b: 90 },
+      { n: 12, par: 3, si: 16, d: 145, b: 135 },
+      { n: 13, par: 4, si: 2, d: 390, b: 180 },
+      { n: 14, par: 5, si: 10, d: 465, b: 225 },
+      { n: 15, par: 3, si: 18, d: 130, b: 270 },
+      { n: 16, par: 4, si: 6, d: 355, b: 315 },
+      { n: 17, par: 4, si: 12, d: 320, b: 0 },
+      { n: 18, par: 4, si: 14, d: 310, b: 45 }
+    ];
+
+    const LIE_MAP = {
+      "Flat / Fairway": [0, ""],
+      "Tight / Thin Grass": [0, "Tight/thin lie: clip it clean (ball slightly back, quiet hands). Avoid digging the 60° — consider a 7-iron bump-and-run if green is open."],
+      "Uphill Lie": [8, "Uphill lie: adds loft (+8m plays-like) & pulls left. Swing along the slope, aim slightly right, take one extra club."],
+      "Downhill Lie": [-6, "Downhill lie: delofts club (-6m carry, extra roll) & leaks right. Match shoulders to slope, chase it in low."],
+      "Ball Above Feet": [2, "Ball above feet: pulls/hooks left. Choke down 2-3cm, stand taller, aim right of target."],
+      "Ball Below Feet": [4, "Ball below feet: pushes/slices right. Flex knees, stay down through impact, aim left of target."]
+    };
+
+    const FULL_BAG = [
+      ["Driver", 220], ["3 Wood", 190], ["5 Hybrid", 165], ["6 Iron", 148],
+      ["7 Iron", 135], ["8 Iron", 122], ["9 Iron", 110], ["PW", 98],
+      ["52° Wedge", 82], ["60° Wedge", 65]
+    ];
+
+    let watchId = null;
+    let gpsRunning = false;
+    let fixBuffer = [];
+    let currentFix = null;
+    let toastTimer = null;
+
+    const loadJson = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) || "") ?? fallback; } catch { return fallback; } };
+    const saveJson = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
+
+    let markedBall = loadJson(BALL_KEY, null);
+    let prefs = loadJson(PREF_KEY, { compMode: false, sunMode: false });
+
+    function showToast(msg) {
+      const el = document.getElementById("toast");
+      el.textContent = msg;
+      el.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+    }
+
+    const toRad = (d) => d * Math.PI / 180;
+    const haversineM = (lat1, lon1, lat2, lon2) => {
+      const p1 = toRad(lat1), p2 = toRad(lat2);
+      const dp = toRad(lat2 - lat1), dl = toRad(lon2 - lon1);
+      const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+      return 2 * EARTH_R * Math.asin(Math.sqrt(Math.min(1, Math.max(0, a))));
+    };
+    const bearingDeg = (lat1, lon1, lat2, lon2) => {
+      const p1 = toRad(lat1), p2 = toRad(lat2), dl = toRad(lon2 - lon1);
+      const y = Math.sin(dl) * Math.cos(p2);
+      const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+      return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    };
+    const compass = (deg) => ["N","NE","E","SE","S","SW","W","NW"][Math.round(deg / 45) % 8];
+    const median = (arr) => {
+      const s = [...arr].sort((a, b) => a - b);
+      const m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+    };
+
+    const holeSel = document.getElementById("holeSelect");
+    HOLES.forEach((h) => {
+      const opt = document.createElement("option");
+      opt.value = h.n;
+      opt.textContent = `Hole ${h.n} · Par ${h.par} (${h.d}m · SI ${h.si})`;
+      holeSel.appendChild(opt);
+    });
+
+    function recommend3Club(plM, lie) {
+      if (plM <= 18) return ["3 Wood (Putter) / 7I Chip", "On or just off the green — keep it rolling along the ground."];
+      if (plM <= 35 && lie === "Tight / Thin Grass") return ["7 Iron — Bump & Run", "Tight Mangrove lie: chip/bump the 7I low rather than risking a chunked 60°."];
+      if (plM <= 65) {
+        const feel = plM <= 35 ? "1/2 Swing" : (plM <= 52 ? "3/4 Swing" : "Full Swing");
+        return [`60° Wedge (${feel})`, `Play to middle of green (${plM}m plays-like). Smooth rhythm.`];
+      }
+      if (plM <= 105) return ["7 Iron — Knockdown / Punch", `Choke down 3cm, 3/4 swing to cover ${plM}m low under any breeze.`];
+      if (plM <= 145) return ["7 Iron — Full Swing", `Stock 7I (135m). Target middle of the green (${plM}m plays-like).`];
+      if (plM <= 200) return ["3 Wood — Full / Controlled", `3W stock (190m). Favor the flat side of the fairway/green.`];
+      const rem = plM - 190;
+      const next = rem <= 65 ? "60° Wedge" : "7 Iron";
+      return ["3 Wood — Advance / Layup", `Hit 3W to flat landing zone (~190m), leaving ~${rem}m (${next}) in.`];
+    }
+
+    function recommendFullBag(plM) {
+      let best = FULL_BAG[FULL_BAG.length - 1];
+      let bestDiff = 9999;
+      for (const [name, dist] of FULL_BAG) {
+        const diff = Math.abs(dist - plM);
+        if (diff < bestDiff) { bestDiff = diff; best = [name, dist]; }
+      }
+      const delta = plM - best[1];
+      const note = delta > 5 ? `Stock ${best[0]} (${best[1]}m) — swing full or club up.` :
+                   delta < -5 ? `Stock ${best[0]} (${best[1]}m) — choke down slightly.` :
+                   `Right on your stock ${best[0]} (${best[1]}m) number.`;
+      return [best[0], note];
+    }
+
+    function applyModeUI() {
+      document.body.classList.toggle("sun", !!prefs.sunMode);
+      document.getElementById("btnSunMode").classList.toggle("active", !!prefs.sunMode);
+      document.getElementById("btnCompMode").classList.toggle("active", !!prefs.compMode);
+      const comp = !!prefs.compMode;
+      document.getElementById("conditionsCard").classList.toggle("hidden", comp);
+      document.getElementById("caddyCard").classList.toggle("hidden", comp);
+      document.getElementById("bagModeWrap").classList.toggle("hidden", comp);
+      ["plFront", "plMid", "plBack"].forEach((id) => document.getElementById(id).classList.toggle("hidden", comp));
+    }
+
+    function checkFreshness() {
+      if (!gpsRunning) return;
+      const badge = document.getElementById("gpsBadge");
+      if (!currentFix) return;
+      const age = Date.now() - currentFix.ts;
+      if (age > FIX_MAX_AGE_MS) {
+        badge.className = "badge err";
+        badge.textContent = `GPS STALE (${Math.round(age / 1000)}s)`;
+      }
+    }
+    setInterval(checkFreshness, 2500);
+
+    function render() {
+      applyModeUI();
+      const holeNum = Number(holeSel.value);
+      const hole = HOLES.find((h) => h.n === holeNum) || HOLES[0];
+      const pins = loadJson(PIN_KEY, {});
+      const pin = pins[holeNum];
+      const pinCount = Object.keys(pins).length;
+      document.getElementById("pinCountLabel").textContent = `${pinCount} / 18 Mangrove Mountain green pins saved.`;
+
+      const lie = document.getElementById("lieSelect").value;
+      const [lieDelta, lieTip] = LIE_MAP[lie] || [0, ""];
+      const elev = Number(document.getElementById("elevInput").value) || 0;
+      const windKph = Number(document.getElementById("windKph").value) || 0;
+      const windMult = Number(document.getElementById("windDir").value) || 0;
+
+      let midM = hole.d;
+      let brg = hole.b;
+      const isFresh = currentFix && (Date.now() - currentFix.ts <= FIX_MAX_AGE_MS);
+      if (isFresh && pin) {
+        midM = Math.round(haversineM(currentFix.lat, currentFix.lon, pin.lat, pin.lon));
+        brg = bearingDeg(currentFix.lat, currentFix.lon, pin.lat, pin.lon);
+        document.getElementById("targetModeLabel").textContent = `Live GPS to Hole ${holeNum} pin (±${pin.acc || "?"}m)`;
+      } else if (pin) {
+        document.getElementById("targetModeLabel").textContent = `Hole ${holeNum} pin saved — start GPS for live distance`;
+      } else {
+        document.getElementById("targetModeLabel").textContent = `Scorecard distance (walk to green & tap Set Green Pin)`;
+      }
+
+      const frontM = Math.max(0, midM - GREEN_HALF_DEPTH);
+      const backM = midM + GREEN_HALF_DEPTH;
+      const windDelta = (windKph / 10) * 0.05 * midM * windMult;
+      const totalDelta = elev + windDelta + lieDelta;
+      const plFront = Math.max(0, Math.round(frontM + totalDelta));
+      const plMid = Math.max(0, Math.round(midM + totalDelta));
+      const plBack = Math.max(0, Math.round(backM + totalDelta));
+
+      document.getElementById("valFront").textContent = `${frontM}m`;
+      document.getElementById("valMid").textContent = `${midM}m`;
+      document.getElementById("valBack").textContent = `${backM}m`;
+      document.getElementById("plFront").textContent = `PL ${plFront}m`;
+      document.getElementById("plMid").textContent = `PL ${plMid}m`;
+      document.getElementById("plBack").textContent = `PL ${plBack}m`;
+      document.getElementById("bearingLabel").textContent = `${Math.round(brg)}° ${compass(brg)}`;
+
+      if (!prefs.compMode) {
+        const mode = document.getElementById("bagMode").value;
+        const [club, tip] = mode === "3club" ? recommend3Club(plMid, lie) : recommendFullBag(plMid);
+        document.getElementById("clubHero").textContent = club;
+        document.getElementById("clubTip").textContent = tip;
+        document.getElementById("lieTip").textContent = lieTip;
+      }
+
+      if (markedBall && isFresh) {
+        const dShot = Math.round(haversineM(markedBall.lat, markedBall.lon, currentFix.lat, currentFix.lon));
+        const err = Math.round(Math.hypot(markedBall.acc || 5, currentFix.accuracy || 5));
+        document.getElementById("shotMeasure").textContent = `📏 Measured shot: ${dShot}m (±${err}m GPS uncertainty).`;
+      } else if (markedBall) {
+        document.getElementById("shotMeasure").textContent = "📍 Ball marked — waiting for fresh GPS fix at your ball.";
+      } else {
+        document.getElementById("shotMeasure").textContent = "Tap Mark Ball before you hit, then walk to your ball to measure distance.";
+      }
+    }
+
+    function startGps() {
+      if (!("geolocation" in navigator)) {
+        showToast("Geolocation not supported on this browser.");
+        return;
+      }
+      gpsRunning = true;
+      fixBuffer = [];
+      document.getElementById("btnStartGps").classList.add("hidden");
+      document.getElementById("btnStopGps").classList.remove("hidden");
+      const badge = document.getElementById("gpsBadge");
+      badge.className = "badge warn";
+      badge.textContent = "GPS: Locking…";
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const now = Date.now();
+          const { latitude: lat, longitude: lon, accuracy } = pos.coords;
+          fixBuffer = fixBuffer.filter((f) => now - f.ts <= FIX_MAX_AGE_MS);
+          if (accuracy <= 25 || fixBuffer.length === 0) {
+            fixBuffer.push({ lat, lon, accuracy, ts: now });
+            if (fixBuffer.length > 5) fixBuffer.shift();
+          }
+          currentFix = {
+            lat: median(fixBuffer.map((f) => f.lat)),
+            lon: median(fixBuffer.map((f) => f.lon)),
+            accuracy: Math.round(accuracy),
+            ts: now
+          };
+          badge.className = "badge" + (accuracy > 15 ? " warn" : "");
+          badge.textContent = `GPS ±${Math.round(accuracy)}m`;
+          document.getElementById("gpsCoords").textContent =
+            `Fix: ${currentFix.lat.toFixed(6)}, ${currentFix.lon.toFixed(6)} (${fixBuffer.length}-fix median)`;
+          render();
+        },
+        (err) => {
+          badge.className = "badge err";
+          badge.textContent = "GPS Error";
+          document.getElementById("gpsCoords").textContent = `GPS error: ${err.message}`;
+        },
+        { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+      );
+    }
+
+    function stopGps() {
+      gpsRunning = false;
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      document.getElementById("btnStartGps").classList.remove("hidden");
+      document.getElementById("btnStopGps").classList.add("hidden");
+      const badge = document.getElementById("gpsBadge");
+      badge.className = "badge warn";
+      badge.textContent = "GPS: Off";
+    }
+
+    // Clear stale buffer when unlocking phone on the next hole
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && gpsRunning) {
+        fixBuffer = [];
+        startGps();
+      }
+    });
+
+    document.getElementById("btnStartGps").addEventListener("click", startGps);
+    document.getElementById("btnStopGps").addEventListener("click", stopGps);
+
+    document.getElementById("btnCompMode").addEventListener("click", () => {
+      prefs.compMode = !prefs.compMode;
+      saveJson(PREF_KEY, prefs);
+      showToast(prefs.compMode ? "Comp Mode ON (Rule 4.3: raw distances only)" : "Comp Mode OFF (Plays-Like & Caddy enabled)");
+      render();
+    });
+
+    document.getElementById("btnSunMode").addEventListener("click", () => {
+      prefs.sunMode = !prefs.sunMode;
+      saveJson(PREF_KEY, prefs);
+      render();
+    });
+
+    document.getElementById("btnSavePin").addEventListener("click", () => {
+      if (!currentFix || (Date.now() - currentFix.ts > FIX_MAX_AGE_MS)) {
+        showToast("Wait for a fresh live GPS fix before saving the green pin.");
+        return;
+      }
+      const holeNum = Number(holeSel.value);
+      const pins = loadJson(PIN_KEY, {});
+      pins[holeNum] = { lat: Number(currentFix.lat.toFixed(6)), lon: Number(currentFix.lon.toFixed(6)), acc: currentFix.accuracy };
+      saveJson(PIN_KEY, pins);
+      const accWarn = currentFix.accuracy > 10 ? " (accuracy >10m — stand still & re-tap if needed)" : "";
+      showToast(`Saved Hole ${holeNum} pin (±${currentFix.accuracy}m)${accWarn}`);
+      render();
+    });
+
+    document.getElementById("btnClearHolePin").addEventListener("click", () => {
+      const holeNum = Number(holeSel.value);
+      const pins = loadJson(PIN_KEY, {});
+      delete pins[holeNum];
+      saveJson(PIN_KEY, pins);
+      showToast(`Cleared Hole ${holeNum} green pin.`);
+      render();
+    });
+
+    document.getElementById("btnCopyPins").addEventListener("click", () => {
+      const pins = loadJson(PIN_KEY, {});
+      const txt = JSON.stringify(pins, null, 2);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt)
+          .then(() => showToast(`Copied ${Object.keys(pins).length} saved pins to clipboard!`))
+          .catch(() => prompt("Copy saved pins JSON:", txt));
+      } else {
+        prompt("Copy saved pins JSON:", txt);
+      }
+    });
+
+    document.getElementById("btnImportPins").addEventListener("click", () => {
+      const raw = prompt("Paste saved pins JSON:");
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid object");
+        saveJson(PIN_KEY, parsed);
+        showToast(`Imported ${Object.keys(parsed).length} green pins!`);
+        render();
+      } catch {
+        showToast("Invalid JSON — pins not changed.");
+      }
+    });
+
+    document.getElementById("btnMarkBall").addEventListener("click", () => {
+      if (!currentFix || (Date.now() - currentFix.ts > FIX_MAX_AGE_MS)) {
+        showToast("Start GPS and wait for a fresh fix to mark your ball.");
+        return;
+      }
+      markedBall = { lat: currentFix.lat, lon: currentFix.lon, acc: currentFix.accuracy };
+      saveJson(BALL_KEY, markedBall);
+      showToast(`Ball marked (±${currentFix.accuracy}m)! Walk to your ball.`);
+      render();
+    });
+
+    document.getElementById("btnClearBall").addEventListener("click", () => {
+      markedBall = null;
+      localStorage.removeItem(BALL_KEY);
+      showToast("Ball mark cleared.");
+      render();
+    });
+
+    ["holeSelect", "bagMode", "lieSelect", "elevInput", "windKph", "windDir"].forEach((id) => {
+      document.getElementById(id).addEventListener("input", render);
+      document.getElementById(id).addEventListener("change", render);
+    });
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js").catch(() => {});
+    }
+    render();
+  </script>
+</body>
+</html>

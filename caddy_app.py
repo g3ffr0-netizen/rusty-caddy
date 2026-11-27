@@ -13,6 +13,7 @@ from caddy import clubs as C
 from caddy import courses as CR
 from caddy import fines as F
 from caddy import formats as G
+from caddy import rangefinder as RF
 from caddy import settlement as S
 from caddy import stats as ST
 from caddy import weather as W
@@ -747,35 +748,112 @@ with tab_caddy:
     miss_idx = C.MISSES.index(cfg.typical_miss) if cfg.typical_miss in C.MISSES else 0
     miss = b3.selectbox("Typical miss", C.MISSES, index=miss_idx, key="cad_miss")
 
-    adv = C.get_caddy_advice(
-        cfg.clubs,
-        hole.par,
-        distance,
-        wind_kmh=wind_kmh,
-        wind_dir=wind_dir_manual,
-        pressure=pressure,
-        miss=miss,
-        elevation_m=elevation,
-        wind_dir_deg=wind_dir_deg,
-        shot_bearing_deg=shot_bearing_deg,
-        gust_kmh=gust_kmh,
+    # Lie / Turf & Bag Mode (Full Bag vs 3-Club Challenge)
+    c1, c2 = st.columns([1.2, 1.8])
+    lie = c1.selectbox("Lie / Turf (Mangrove slopes & tight grass)", list(RF.LIE_CONDITIONS), key="cad_lie")
+    bag_mode = c2.radio(
+        "Bag mode",
+        ["Full Bag", "🏆 3-Club Challenge (3W / 7I / 60°)"],
+        horizontal=True,
+        key="cad_bag_mode",
     )
 
-    m1, m2 = st.columns(2)
-    with m1:
-        delta_label = f"plays like {adv.plays_like_m} m (carry {adv.carry_m} m)"
-        st.metric("Recommended club", adv.club, delta_label, delta_color="off")
-        if adv.wind_adjustment:
-            wa = adv.wind_adjustment
-            sign = "+" if wa.wind_effect_m >= 0 else ""
-            gust_part = f" · in gusts: **{round(wa.gust_plays_like_m)} m**" if wa.gust_plays_like_m is not None else ""
-            st.markdown(
-                f"💨 **{wa.relative_label}** ({sign}{round(wa.wind_effect_m)} m wind effect{gust_part})"
-            )
-        st.info(adv.strategy + (f"  \n{adv.aim_tip}" if adv.aim_tip else ""))
-        st.caption(adv.next_shot)
-    with m2:
-        st.warning(C.mental_state(pressure))
+    lie_delta_m, lie_tip = RF.LIE_CONDITIONS.get(lie, (0.0, ""))
+
+    # Optional GPS Rangefinder (Front / Middle / Back + Shot Distance Tracker)
+    with st.expander("📍 GPS Rangefinder (Front / Middle / Back & Shot Tracker)", expanded=False):
+        st.caption(
+            "Enter your current GPS & green-center pin (or paste from Google Maps / phone GPS) for Front / Middle / Back "
+            "yardages, compass bearing, and Mark-Ball shot measurement."
+        )
+        base_lat = float(cfg.latitude) if cfg.latitude is not None else -33.2935
+        base_lon = float(cfg.longitude) if cfg.longitude is not None else 151.2015
+        g1, g2, g3, g4 = st.columns(4)
+        p_lat = g1.number_input("Player Lat", value=base_lat - 0.0012, format="%.6f", step=0.0001, key="rf_plat")
+        p_lon = g2.number_input("Player Lon", value=base_lon, format="%.6f", step=0.0001, key="rf_plon")
+        g_lat = g3.number_input("Green Mid Lat", value=base_lat, format="%.6f", step=0.0001, key="rf_glat")
+        g_lon = g4.number_input("Green Mid Lon", value=base_lon, format="%.6f", step=0.0001, key="rf_glon")
+
+        rf_reading = RF.compute_rangefinder_reading(
+            RF.GPSFix(lat=p_lat, lon=p_lon, accuracy_m=5.0),
+            RF.GreenTargets(middle_lat=g_lat, middle_lon=g_lon),
+            wind_kmh=wind_kmh,
+            wind_dir=wind_dir_manual,
+            wind_dir_deg=wind_dir_deg if use_live_wind else None,
+            elevation_override_m=float(elevation),
+            lie=lie,
+        )
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Front", f"{rf_reading.front_m} m", f"plays {rf_reading.plays_like_front_m} m", delta_color="off")
+        r2.metric("Middle", f"{rf_reading.middle_m} m", f"plays {rf_reading.plays_like_middle_m} m", delta_color="off")
+        r3.metric("Back", f"{rf_reading.back_m} m", f"plays {rf_reading.plays_like_back_m} m", delta_color="off")
+        r4.metric("Bearing", f"{rf_reading.compass} ({rf_reading.bearing_deg:.0f}°)", rf_reading.accuracy_badge, delta_color="off")
+
+        sb1, sb2, sb3 = st.columns(3)
+        if sb1.button("📌 Use GPS Middle Distance", key="rf_use_mid"):
+            ss.cad_dist = max(10, min(650, rf_reading.middle_m))
+            ss.cad_shot_bearing = rf_reading.compass
+            st.rerun()
+        if sb2.button("⛳ Mark Ball (Start Shot)", key="rf_mark_start"):
+            ss.rf_shot_start = RF.GPSFix(lat=p_lat, lon=p_lon, accuracy_m=5.0)
+        if sb3.button("📏 Measure Shot", key="rf_measure_shot") and ss.get("rf_shot_start"):
+            shot_m = RF.measure_shot_m(ss.rf_shot_start, RF.GPSFix(lat=p_lat, lon=p_lon, accuracy_m=5.0))
+            st.success(f"Measured shot distance: **{shot_m} m**")
+
+    if bag_mode.startswith("🏆"):
+        tc1, tc2, tc3 = st.columns(3)
+        w3_c = tc1.number_input("3 Wood carry (m)", 120, 260, 190, 5, key="tc_3w")
+        i7_c = tc2.number_input("7 Iron carry (m)", 80, 190, 135, 5, key="tc_7i")
+        w60_c = tc3.number_input("60° Wedge carry (m)", 30, 110, 65, 5, key="tc_60")
+        three_bag = [["3 Wood", int(w3_c)], ["7 Iron", int(i7_c)], ["60° Wedge", int(w60_c)]]
+        if use_live_wind and live_wind and wind_dir_deg is not None and shot_bearing_deg is not None:
+            pl_total = C.wind_plays_like(distance, wind_kmh, wind_dir_deg, shot_bearing_deg, elevation, gust_kmh).plays_like_m + lie_delta_m
+        else:
+            pl_total = C.plays_like(distance, wind_kmh, wind_dir_manual, elevation) + lie_delta_m
+        tc_shot = RF.recommend_three_club_shot(
+            pl_total,
+            three_clubs=three_bag,
+            lie=lie,
+            wind_kmh=wind_kmh,
+            pressure=pressure,
+        )
+        m1, m2 = st.columns(2)
+        with m1:
+            st.metric("3-Club Play", tc_shot.club, f"{tc_shot.shot_type} · plays like {tc_shot.plays_like_m} m", delta_color="off")
+            st.info(f"**Feel:** {tc_shot.swing_feel}  \n{tc_shot.strategy}" + (f"  \n🧭 {tc_shot.lie_tip}" if tc_shot.lie_tip else ""))
+            st.caption(tc_shot.next_shot)
+        with m2:
+            st.warning(C.mental_state(pressure))
+    else:
+        adv = C.get_caddy_advice(
+            cfg.clubs,
+            hole.par,
+            distance,
+            wind_kmh=wind_kmh,
+            wind_dir=wind_dir_manual,
+            pressure=pressure,
+            miss=miss,
+            elevation_m=elevation + lie_delta_m,
+            wind_dir_deg=wind_dir_deg,
+            shot_bearing_deg=shot_bearing_deg,
+            gust_kmh=gust_kmh,
+        )
+
+        m1, m2 = st.columns(2)
+        with m1:
+            delta_label = f"plays like {adv.plays_like_m} m (carry {adv.carry_m} m)"
+            st.metric("Recommended club", adv.club, delta_label, delta_color="off")
+            if adv.wind_adjustment:
+                wa = adv.wind_adjustment
+                sign = "+" if wa.wind_effect_m >= 0 else ""
+                gust_part = f" · in gusts: **{round(wa.gust_plays_like_m)} m**" if wa.gust_plays_like_m is not None else ""
+                st.markdown(
+                    f"💨 **{wa.relative_label}** ({sign}{round(wa.wind_effect_m)} m wind effect{gust_part})"
+                )
+            st.info(adv.strategy + (f"  \n{adv.aim_tip}" if adv.aim_tip else "") + (f"  \n🧭 {lie_tip}" if lie_tip else ""))
+            st.caption(adv.next_shot)
+        with m2:
+            st.warning(C.mental_state(pressure))
 
 # ------------------------------------------------------------------ games
 with tab_games:
